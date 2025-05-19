@@ -2,17 +2,14 @@
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from gpt import classify_entry, generate_financial_advice
-from sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
-from plot import generate_summary_chart
-from drive import export_pdf_report
+from modules.gpt import classify_entry, generate_financial_advice
+from modules.sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
+from modules.plot import generate_summary_chart
+from modules.drive import export_pdf_report
 from datetime import datetime
 
-# 環境變數
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 JOIN_PASSWORD = os.getenv("JOIN_PASSWORD")
 
-# 機器人指令：start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if not await is_verified_user(update):
@@ -37,7 +34,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help - 查看所有指令\n"
     )
 
-# 驗證指令
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0 or context.args[0] != JOIN_PASSWORD:
         await update.message.reply_text("❌ 密碼錯誤，請再試一次。")
@@ -46,17 +42,15 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_user_sheet(user_id)
     await update.message.reply_text("✅ 驗證成功，請輸入 /setusername [你的名稱] 以完成設定。")
 
-# 設定用戶名稱
 async def setusername(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
         await update.message.reply_text("請輸入名稱，例如 /setusername Nic")
         return
-    user_id = str(update.effective_user.id)
     username = context.args[0]
+    user_id = str(update.effective_user.id)
     set_username(user_id, username)
     await update.message.reply_text(f"✅ 名稱已設定為 {username}")
 
-# 設定預算
 async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
         return
@@ -64,14 +58,10 @@ async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("請輸入預算金額，例如 /setbudget 5000")
         return
     user_id = str(update.effective_user.id)
-    try:
-        amount = float(context.args[0])
-        set_user_budget(user_id, amount)
-        await update.message.reply_text(f"✅ 本月預算已設定為 HK${amount}")
-    except:
-        await update.message.reply_text("⚠️ 輸入格式錯誤，請輸入數字，例如 /setbudget 5000")
+    amount = float(context.args[0])
+    set_user_budget(user_id, amount)
+    await update.message.reply_text(f"✅ 本月預算已設定為 HK${amount}")
 
-# 顯示支出圖表
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
         return
@@ -79,15 +69,13 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chart_path = generate_summary_chart(user_id)
     await update.message.reply_photo(photo=open(chart_path, 'rb'), caption="📊 本月支出總結")
 
-# 顯示收入總結
 async def income(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
         return
     user_id = str(update.effective_user.id)
-    summary = get_income_summary(user_id)
-    await update.message.reply_text(summary)
+    summary_text = get_income_summary(user_id)
+    await update.message.reply_text(summary_text)
 
-# 匯出 PDF 報告
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
         return
@@ -98,7 +86,6 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pdf_path = export_pdf_report(user_id)
     await update.message.reply_document(document=open(pdf_path, 'rb'), filename="月報表.pdf")
 
-# 處理日常記帳輸入
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
         return
@@ -119,7 +106,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "\n⚠️ 已超出本月預算！"
     await update.message.reply_text(msg)
 
-# 指令教學
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""📘 指令列表：
 /start - 使用教學
@@ -134,10 +120,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 例如：52 晚餐 或 +1000 freelance
 """)
 
-# App 初始化
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-# 指令處理器
+app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("verify", verify))
 app.add_handler(CommandHandler("setusername", setusername))
