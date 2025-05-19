@@ -1,21 +1,36 @@
-# -*- coding: utf-8 -*-
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from modules.gpt import classify_entry, generate_financial_advice
-from modules.sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
+from modules.sheets import add_record, check_budget_status, get_summary, set_user_budget, init_user_sheet, is_verified_user, set_username, get_income_summary
 from modules.plot import generate_summary_chart
 from modules.drive import export_pdf_report
-from datetime import datetime
 
 JOIN_PASSWORD = os.getenv("JOIN_PASSWORD")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if not await is_verified_user(update):
-        await update.message.reply_text("👋 歡迎使用《AI 家居記帳助手》！\n\n請先輸入：\n/veri...
+        await update.message.reply_text(
+            "👋 歡迎使用《AI 家居記帳助手》！\n\n"
+            "請先輸入：\n"
+            "/verify 密碼 解鎖功能 🔐\n\n"
+            "未驗證前暫時無法使用任何記帳與圖表功能。"
+        )
         return
-    await update.message.reply_text("✅ 歡迎你再次使用《AI 家居記帳助手》！\n\n📌 記帳方式：\n1. 52 晚餐（支出）\n2. +1000 freelance（收入）")
+    await update.message.reply_text(
+        "🎉 你已成功啟用 AI 家居記帳助手！\n\n"
+        "💡 記帳方式：\n"
+        "➡️ `52 晚餐` 👉 支出\n"
+        "➡️ `+1000 freelance` 👉 收入\n\n"
+        "📌 指令教學：\n"
+        "/setusername 名稱 - 設定名稱\n"
+        "/setbudget 金額 - 設定預算\n"
+        "/summary - 查看支出圖表\n"
+        "/income - 查看收入總結\n"
+        "/export 密碼 - 匯出月報 PDF\n"
+        "/help - 查看所有指令\n"
+    )
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0 or context.args[0] != JOIN_PASSWORD:
@@ -23,7 +38,7 @@ async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id = str(update.effective_user.id)
     init_user_sheet(user_id)
-    await update.message.reply_text("✅ 驗證成功，請輸入 /setusername [你的名稱] 完成設定！\n例如：/setusername Nic")
+    await update.message.reply_text("✅ 驗證成功，請輸入 /setusername [你的名稱] 以完成設定。")
 
 async def setusername(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -43,7 +58,7 @@ async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     amount = float(context.args[0])
     set_user_budget(user_id, amount)
-    await update.message.reply_text(f"💰 本月預算已設定為 HK${amount}")
+    await update.message.reply_text(f"✅ 本月預算已設定為 HK${amount}")
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
@@ -79,14 +94,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount_str, purpose = text[1:].split(' ', 1) if is_income else text.split(' ', 1)
         amount = float(amount_str)
     except:
-        await update.message.reply_text("⚠️ 格式錯誤：請輸入 52 晚餐 或 +1000 freelance")
+        await update.message.reply_text("❗ 輸入格式錯誤，請試例如：52 晚餐 或 +1000 freelance")
         return
     category = classify_entry(purpose, is_income)
     add_record(user_id, amount, category, purpose, is_income)
     used, budget = check_budget_status(user_id)
     msg = f"✅ 已記錄：{category} - ${amount}（{purpose}）\n📊 本月已用：${used} / ${budget}"
     if used > budget:
-        msg += "\n⚠️ 已超出預算！"
+        msg += "\n⚠️ 已超出本月預算！"
     await update.message.reply_text(msg)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,7 +114,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /income - 查看收入統計
 /export [密碼] - 匯出月報 PDF
 /help - 查看所有指令
-直接輸入「金額 用途」記帳，如：52 晚餐 或 +1000 freelance
+📥 記帳方式：
+例如：52 晚餐 或 +1000 freelance
 """)
 
 app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
