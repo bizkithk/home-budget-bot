@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
@@ -27,7 +28,7 @@ async def setusername(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = context.args[0]
     user_id = str(update.effective_user.id)
     set_username(user_id, username)
-    await update.message.reply_text(f"✅ 名稱已設定為 {username}")
+    await update.message.reply_text(f"👤 名稱已設定為 {username}")
 
 async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
@@ -38,7 +39,7 @@ async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     amount = float(context.args[0])
     set_user_budget(user_id, amount)
-    await update.message.reply_text(f"✅ 本月預算已設定為 HK${amount}")
+    await update.message.reply_text(f"💰 本月預算已設定為 HK${amount}")
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
@@ -62,7 +63,7 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id = str(update.effective_user.id)
     pdf_path = export_pdf_report(user_id)
-    await update.message.reply_document(document=open(pdf_path, 'rb'), filename="月報表.pdf")
+    await update.message.reply_document(document=open(pdf_path, 'rb'), filename="📄 月報表.pdf")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_verified_user(update):
@@ -79,24 +80,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     category = classify_entry(purpose, is_income)
     add_record(user_id, amount, category, purpose, is_income)
     used, budget = check_budget_status(user_id)
-    msg = f"✅ 已記錄：{category} - ${amount}（{purpose}）"
-📊 本月已用：${used} / ${budget}"
+    msg = f"✅ 已記錄：{category} - ${amount}（{purpose}）\n📊 本月已用：${used} / ${budget}"
     if used > budget:
-        msg += "
-⚠️ 已超出本月預算！"
+        msg += "\n⚠️ 已超出本月預算！💸"
     await update.message.reply_text(msg)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""📘 指令列表：
 /start - 使用教學
-/verify [密碼] - 驗證使用權限
-/setusername [名稱] - 設定用戶名稱
-/setbudget [金額] - 設定預算
-/summary - 查看支出圖表總結
-/income - 查看收入統計
-/export [密碼] - 匯出月報 PDF
-/help - 查看所有指令
-直接輸入「金額 用途」記帳，如：52 晚餐 或 +1000 freelance
+/verify [密碼] - 🔐 驗證使用權限
+/setusername [名稱] - 👤 設定用戶名稱
+/setbudget [金額] - 💰 設定預算
+/summary - 📊 查看支出圖表總結
+/income - 💵 查看收入統計
+/export [密碼] - 📄 匯出月報 PDF
+/help - 🆘 查看所有指令
+
+📌 直接輸入「金額 用途」記帳，例如：
+52 晚餐
++1000 freelance
 """)
 
 app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
