@@ -1,26 +1,36 @@
+# Let's generate the updated payment_check.py that uses "AI付款表單回應" for payment verification
+
+payment_check_path = "/mnt/data/payment_check.py"
+
+updated_payment_check_code = """# -*- coding: utf-8 -*-
+import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import os
 import base64
 import json
 
-SCOPE = ['https://spreadsheets.google.com/feeds','https://www.googleapis.com/auth/drive']
-PAYMENT_SHEET_ID = os.getenv("PAYMENT_SHEET_ID", "")
+def get_payment_sheet():
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds_json = os.getenv("GOOGLE_SERVICE_JSON_BASE64")
+    creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    # Get the payment sheet specifically from AI付款表單回應
+    sheet = client.open("AI付款表單回應").sheet1
+    return sheet
 
-def _auth():
-    creds_json = base64.b64decode(os.getenv("GOOGLE_CREDS_BASE64")).decode("utf-8")
-    creds_dict = json.loads(creds_json)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    return gspread.authorize(creds)
-
-def is_user_paid(user_id):
-    if not PAYMENT_SHEET_ID:
-        return True  # If not set, assume free mode
-    gc = _auth()
-    sheet = gc.open_by_key(PAYMENT_SHEET_ID)
-    ws = sheet.sheet1
-    records = ws.get_all_records()
-    for r in records:
-        if str(r.get("Telegram_ID")) == str(user_id) and str(r.get("已付款", "")).strip() == "是":
-            return True
+def is_payment_verified(user_id):
+    sheet = get_payment_sheet()
+    data = sheet.get_all_records()
+    for row in data:
+        if str(row.get("Telegram_ID", "")).strip() == str(user_id):
+            status = str(row.get("付款狀態", "")).strip()
+            if status == "已付款":
+                return True
     return False
+"""
+
+with open(payment_check_path, "w", encoding="utf-8") as f:
+    f.write(updated_payment_check_code)
+
+payment_check_path
