@@ -79,7 +79,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     category = classify_entry(purpose, is_income)
     add_record(user_id, amount, category, purpose, is_income)
     used, budget = check_budget_status(user_id)
-    msg = f"✅ 已記錄：{category} - ${amount}（{purpose}）
+    msg = f"✅ 已記錄：{category} - ${amount}（{purpose}）"
 📊 本月已用：${used} / ${budget}"
     if used > budget:
         msg += "
