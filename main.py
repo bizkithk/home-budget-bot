@@ -2,10 +2,10 @@
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from modules.gpt import classify_entry, generate_financial_advice
-from modules.sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
-from modules.plot import generate_summary_chart
-from modules.drive import export_pdf_report
+from gpt import classify_entry, generate_financial_advice
+from sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
+from plot import generate_summary_chart
+from drive import  export_pdf_report
 from datetime import datetime
 
 JOIN_PASSWORD = os.getenv("JOIN_PASSWORD")
