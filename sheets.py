@@ -1,64 +1,84 @@
+# Let's update sheets.py to point to "家庭收支表" for記帳 / 預算 / 報表用
+sheets_py_path = "/mnt/data/sheets.py"
+
+sheets_py_code = """# -*- coding: utf-8 -*-
+import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import base64
+import json
 from datetime import datetime
-import os
 
-SCOPE = ['https://spreadsheets.google.com/feeds','https://www.googleapis.com/auth/drive']
-SHEET_ID = "1EbGOIeQzgrLd2d8s60wifELwboDHv5EFA8zMzavTCLU"
-
-def _auth():
-    import base64, json
-    creds_json = base64.b64decode(os.getenv("GOOGLE_CREDS_BASE64")).decode("utf-8")
-    creds_dict = json.loads(creds_json)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    return gspread.authorize(creds)
-
-def _get_user_ws(user_id):
-    gc = _auth()
-    sheet = gc.open_by_key(SHEET_ID)
-    try:
-        return sheet.worksheet(user_id)
-    except:
-        sheet.add_worksheet(title=user_id, rows="1000", cols="5")
-        ws = sheet.worksheet(user_id)
-        ws.append_row(["時間", "類別", "金額", "用途", "收入"])
-        return ws
+def get_gsheet():
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds_json = os.getenv("GOOGLE_SERVICE_JSON_BASE64")
+    creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    return client.open("家庭收支表").sheet1
 
 def init_user_sheet(user_id):
-    _get_user_ws(user_id)
+    # This function is a placeholder in case you need user-specific setup
+    pass
 
 def add_record(user_id, amount, category, purpose, is_income):
-    ws = _get_user_ws(user_id)
-    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), category, amount, purpose, "是" if is_income else "否"])
+    sheet = get_gsheet()
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([user_id, date, amount, category, purpose, is_income])
 
 def check_budget_status(user_id):
-    ws = _get_user_ws(user_id)
-    data = ws.get_all_records()
-    budget = float(os.getenv(f"BUDGET_{user_id}", "5000"))
-    spent = sum(float(d["金額"]) for d in data if d["收入"] == "否")
-    return spent, budget
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    used = 0
+    budget = 0
+    for row in data:
+        if str(row.get("user_id", "")).strip() == str(user_id):
+            if str(row.get("is_income", "")).strip().lower() == "false":
+                used += float(row.get("amount", 0))
+            budget = float(row.get("budget", budget))
+    return used, budget
 
 def set_user_budget(user_id, amount):
-    os.environ[f"BUDGET_{user_id}"] = str(amount)
-
-def set_username(user_id, name):
-    os.environ[f"USERNAME_{user_id}"] = name
-
-async def is_verified_user(update):
-    user_id = str(update.effective_user.id)
-    if f"USERNAME_{user_id}" not in os.environ:
-        await update.message.reply_text("⚠️ 請先輸入 /verify 密碼，再用 /setusername [名稱] 設定帳戶。")
-        return False
-    return True
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    for i, row in enumerate(data, start=2):
+        if str(row.get("user_id", "")).strip() == str(user_id):
+            sheet.update_cell(i, 7, amount)  # Assume column 7 = budget
+            return
+    # If user not found, append new row
+    sheet.append_row([user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0, "", "", False, amount])
 
 def get_income_summary(user_id):
-    ws = _get_user_ws(user_id)
-    data = ws.get_all_records()
-    income_data = [d for d in data if d["收入"] == "是"]
-    total = sum(float(d["金額"]) for d in income_data)
-    by_type = {}
-    for d in income_data:
-        key = d["類別"]
-        by_type[key] = by_type.get(key, 0) + float(d["金額"])
-    summary = f"💰 本月總收入：HK${total}\n\n分類統計：\n" + "\n".join([f"- {k}: ${v}" for k, v in by_type.items()])
-    return summary
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    total_income = 0
+    breakdown = {}
+    for row in data:
+        if str(row.get("user_id", "")).strip() == str(user_id) and str(row.get("is_income", "")).lower() == "true":
+            amt = float(row.get("amount", 0))
+            cat = row.get("category", "未分類")
+            total_income += amt
+            breakdown[cat] = breakdown.get(cat, 0) + amt
+    result = f"💰 本月總收入：HK${total_income}\\n"
+    for cat, amt in breakdown.items():
+        result += f"・{cat}: HK${amt}\\n"
+    return result
+
+def set_username(user_id, username):
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    for i, row in enumerate(data, start=2):
+        if str(row.get("user_id", "")).strip() == str(user_id):
+            sheet.update_cell(i, 8, username)  # Assume column 8 = username
+            return
+    sheet.append_row([user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0, "", "", False, 0, username])
+
+def is_verified_user(update):
+    from payment_check import is_payment_verified
+    return is_payment_verified(str(update.effective_user.id))
+"""
+
+with open(sheets_py_path, "w", encoding="utf-8") as f:
+    f.write(sheets_py_code)
+
+sheets_py_path
