@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 import os
+import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from gpt import classify_entry, generate_financial_advice
 from sheets import add_record, check_budget_status, get_income_summary, set_user_budget, init_user_sheet, set_username, is_verified_user
 from plot import generate_summary_chart
-from drive import  export_pdf_report
+from drive import export_pdf_report
 from datetime import datetime
+
+# logging for errors
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 JOIN_PASSWORD = os.getenv("JOIN_PASSWORD")
 
@@ -120,6 +124,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 例如：52 晚餐 或 +1000 freelance
 """)
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.error(f"❗ 發生錯誤：{context.error}")
+    if update and hasattr(update, "message"):
+        await update.message.reply_text("⚠️ 系統發生錯誤，請稍後再試。")
+
 app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("verify", verify))
@@ -130,10 +139,7 @@ app.add_handler(CommandHandler("income", income))
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-if __name__ == "__main__":
-    app.run_polling()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+app.add_error_handler(error_handler)
 
 if __name__ == "__main__":
     app.run_polling()
