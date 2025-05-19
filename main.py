@@ -11,15 +11,49 @@ from datetime import datetime
 JOIN_PASSWORD = os.getenv("JOIN_PASSWORD")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 歡迎使用 AI 家居記帳助手！請先輸入 /verify [密碼] 以開始使用。")
-
-async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) == 0 or context.args[0] != JOIN_PASSWORD:
-        await update.message.reply_text("❌ 密碼錯誤，請再試一次。")
-        return
     user_id = str(update.effective_user.id)
-    init_user_sheet(user_id)
-    await update.message.reply_text("✅ 驗證成功，請輸入 /setusername [你的名稱] 以完成設定。")
+    if not await is_verified_user(update):
+        await update.message.reply_text("""👋 歡迎使用《AI 家居記帳助手》！
+
+請先輸入：/verify [密碼] 解鎖功能 🔐
+
+未驗證前暫時無法使用任何記帳與查閱功能。
+""")
+        return
+async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("""✅ 驗證成功！
+
+🎉 你已成功啟用 AI 家居記帳助手！
+
+📚 記帳教學：
+
+🧾 支出 ➜ 輸入「金額＋用途」
+　例：52 晚餐、25 交通、198 書本
+
+💵 收入 ➜ 輸入「+金額＋來源」
+　例：+8000 薪金、+5000 freelance、+200 投資回報
+
+🗂️ 系統會自動分類為：
+🍔 飲食、🚇 交通、🎮 娛樂、🧻 生活用品、💡 水電煤、🏠 租金、📈 投資、💵 收入、🧩 其他
+
+📊 每次記帳後會顯示：
+✅ 分類結果＋📊 本月預算進度
+⚠️ 超出預算即時提示！
+
+🔁 每日自動摘要，📅 每週圖表推送
+📄 可用 /export 匯出 PDF 報表
+
+🆘 輸入 /help 查看所有功能列表 ✨
+""")
+
+🎉 你已成功啟用 AI 家居記帳助手！
+
+📌 記帳方式：
+52 晚餐 ➜ 支出
++1000 freelance ➜ 收入
+
+🆘 輸入 /help 查看所有功能列表 ✨
+""")
 
 async def setusername(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
@@ -86,22 +120,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("""📘 指令列表：
-/start - 使用教學
-/verify [密碼] - 🔐 驗證使用權限
-/setusername [名稱] - 👤 設定用戶名稱
-/setbudget [金額] - 💰 設定預算
-/summary - 📊 查看支出圖表總結
-/income - 💵 查看收入統計
-/export [密碼] - 📄 匯出月報 PDF
-/help - 🆘 查看所有指令
-
-📌 直接輸入「金額 用途」記帳，例如：
-52 晚餐
-+1000 freelance
-""")
-
-app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+    if not await is_verified_user(update):
+        await update.message.reply_text("❌ 請先輸入 /verify [密碼] 解鎖所有功能 🔐")
+        return
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("verify", verify))
 app.add_handler(CommandHandler("setusername", setusername))
