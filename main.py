@@ -143,3 +143,11 @@ app.add_error_handler(error_handler)
 
 if __name__ == "__main__":
     app.run_polling()
+from telegram.error import TelegramError
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    print(f"發生錯誤：{context.error}")
+    if isinstance(update, Update) and update.message:
+        await update.message.reply_text("⚠️ 系統發生錯誤，請稍後再試。")
+
+app.add_error_handler(error_handler)
