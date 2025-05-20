@@ -1,19 +1,21 @@
 # -*- coding: utf-8 -*-
-import os
-from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
-                          filters, ContextTypes, ConversationHandler)
-from sheets import (is_verified_user, set_username, add_record, get_summary_chart,
-                    get_income_summary, set_user_budget, export_pdf_report)
+# main.py
+import logging
+from telegram import Update, ForceReply
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from sheets import is_verified_user, set_username, add_record, get_summary_chart, get_income_summary, set_user_budget, export_pdf_report
 from payment_check import is_payment_verified
+from gpt_advice import generate_financial_advice
+import os
 
-# --- 狀態代碼 ---
-AWAITING_USERNAME, AWAITING_EXPORT_PASSWORD = range(2)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# --- 指令 ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if not is_verified_user(update):
+    if not is_payment_verified(user_id):
         await update.message.reply_text(
             "👋 歡迎使用《AI 家居記帳助手》！\n\n"
             "請先輸入：\n"
@@ -22,148 +24,98 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    username = update.effective_user.full_name
+    set_username(user_id, username)
+
     await update.message.reply_text(
-        "🎉 驗證成功！\n\n"
-        "👋 歡迎使用《AI 家居記帳助手》！\n\n"
-        "📌 請先設定你嘅用戶名稱：\n"
-        "`/setusername 你的名稱`\n（建議用你嘅 Telegram 名稱，例如：`/setusername 阿強`）\n\n"
-        "💡 完成後你就可以直接輸入金額＋備註嚟記帳，例如：\n"
-        "`50 晚餐` 👉 支出\n"
+        "✅ 驗證成功！\n\n"
+        f"Hello {username}～歡迎加入《AI 家庭記帳助手》大家庭！\n\n"
+        "你已自動建立個人專屬分頁，可即時開始記帳。\n\n"
+        "💡 記帳方法：\n"
+        "`52 晚餐` 👉 支出\n"
         "`+1000 freelance` 👉 收入\n\n"
-        "📘 常用指令：\n"
+        "📘 指令教學：\n"
         "/setbudget 金額 - 設定預算\n"
         "/summary - 查看支出圖表\n"
         "/income - 查看收入總結\n"
         "/export 密碼 - 匯出 PDF 月報\n"
-        "/help - 查看所有功能"
+        "/advice - 查看 GPT 理財建議\n"
+        "/help - 查看所有指令"
     )
 
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = os.getenv("BOT_ACCESS_PASSWORD")
+    if len(context.args) == 0 or context.args[0] != password:
+        await update.message.reply_text("密碼錯誤，請再試一次。")
+        return
+
     user_id = str(update.effective_user.id)
-    if not context.args:
-        await update.message.reply_text("❌ 請加上密碼，例如：`/verify your_password`")
-        return
-
-    password = context.args[0]
-    if is_payment_verified(user_id, password):
-        await update.message.reply_text("✅ 驗證成功，請輸入 `/start` 開始使用！")
-    else:
-        await update.message.reply_text("❌ 密碼錯誤或未付款。請先完成付款。")
-
-async def setusername(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if not is_verified_user(update):
-        await update.message.reply_text("⚠️ 請先完成驗證。輸入 `/verify 密碼`")
-        return
-
-    if not context.args:
-        await update.message.reply_text("❌ 請輸入名稱，例如：`/setusername 阿媽`")
-        return
-
-    username = " ".join(context.args)
-    set_username(user_id, username)
-    await update.message.reply_text(f"✅ 已設定名稱為「{username}」！你可開始記帳啦～")
+    context.user_data["verified"] = True
+    await start(update, context)
 
 async def setbudget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if not is_verified_user(update):
-        await update.message.reply_text("⚠️ 請先完成驗證。輸入 `/verify 密碼`")
+    if len(context.args) == 0:
+        await update.message.reply_text("請輸入你的每月預算，例如 `/setbudget 1000`。")
         return
-
-    if not context.args:
-        await update.message.reply_text("請輸入預算金額，例如：/setbudget 5000")
-        return
-
     try:
-        amount = float(context.args[0])
-        set_user_budget(user_id, amount)
-        await update.message.reply_text(f"✅ 已設定每月預算為 HK${amount}")
+        budget = float(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ 請輸入有效的數字金額。")
+        await update.message.reply_text("請輸入正確數字。")
+        return
+    user_id = str(update.effective_user.id)
+    set_user_budget(user_id, budget)
+    await update.message.reply_text(f"🎯 每月預算已設定為 HK${budget}")
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if not is_verified_user(update):
-        await update.message.reply_text("⚠️ 請先完成驗證。輸入 `/verify 密碼`")
-        return
-    image = get_summary_chart(user_id)
-    await update.message.reply_photo(photo=image)
+    chart_url = get_summary_chart(str(update.effective_user.id))
+    await update.message.reply_photo(chart_url)
 
 async def income(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if not is_verified_user(update):
-        await update.message.reply_text("⚠️ 請先完成驗證。輸入 `/verify 密碼`")
-        return
-    msg = get_income_summary(user_id)
-    await update.message.reply_text(msg)
+    result = get_income_summary(str(update.effective_user.id))
+    await update.message.reply_text(result)
 
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if not context.args:
-        await update.message.reply_text("請輸入密碼，例如：/export your_password")
+    if len(context.args) == 0 or context.args[0] != os.getenv("BOT_ACCESS_PASSWORD"):
+        await update.message.reply_text("密碼錯誤，無法匯出報告。")
         return
+    pdf = export_pdf_report(str(update.effective_user.id))
+    await update.message.reply_document(pdf)
 
-    password = context.args[0]
-    if not is_payment_verified(user_id, password):
-        await update.message.reply_text("❌ 未能驗證付款或密碼錯誤。請確認是否完成付款。")
-        return
-
-    file_path = export_pdf_report(user_id)
-    await update.message.reply_document(document=open(file_path, "rb"))
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🆘 指令一覽：\n\n"
-        "/start - 開始使用\n"
-        "/verify 密碼 - 解鎖功能\n"
-        "/setusername 名稱 - 設定使用者名稱\n"
-        "/setbudget 金額 - 設定預算\n"
-        "/summary - 查看支出圖表\n"
-        "/income - 查看收入總結\n"
-        "/export 密碼 - 匯出 PDF 月報\n"
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def advice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    advice_text = generate_financial_advice(user_id)
+    await update.message.reply_text(advice_text)
+
+async def handle_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_verified_user(update):
-        return await update.message.reply_text("⚠️ 請先輸入 /verify 密碼 完成驗證。")
+        await update.message.reply_text("請先輸入 /verify 密碼 解鎖功能。")
+        return
 
-    text = update.message.text.strip()
-    if text.startswith("+"):
-        try:
-            parts = text[1:].split(" ", 1)
-            amount = float(parts[0])
-            purpose = parts[1] if len(parts) > 1 else "未分類"
+    text = update.message.text
+    user_id = str(update.effective_user.id)
+
+    try:
+        if text.startswith("+"):
+            amount, purpose = text[1:].split(" ", 1)
             add_record(user_id, amount, "收入", purpose, True)
-            await update.message.reply_text("✅ 收入已記錄！")
-        except:
-            await update.message.reply_text("❌ 輸入格式錯誤，例子：+1000 freelance")
-    else:
-        try:
-            parts = text.split(" ", 1)
-            amount = float(parts[0])
-            purpose = parts[1] if len(parts) > 1 else "未分類"
+        else:
+            amount, purpose = text.split(" ", 1)
             add_record(user_id, amount, "支出", purpose, False)
-            await update.message.reply_text("✅ 支出已記錄！")
-        except:
-            await update.message.reply_text("❌ 輸入格式錯誤，例子：52 晚餐")
+        await update.message.reply_text("✅ 記錄成功！")
+    except:
+        await update.message.reply_text("⚠️ 請用正確格式輸入，如：`+1000 freelance` 或 `52 晚餐`")
 
-# --- 主程序 ---
 if __name__ == '__main__':
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    TOKEN = os.getenv("TELEGRAM_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    app = ApplicationBuilder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("verify", verify))
-    app.add_handler(CommandHandler("setusername", setusername))
     app.add_handler(CommandHandler("setbudget", setbudget))
     app.add_handler(CommandHandler("summary", summary))
     app.add_handler(CommandHandler("income", income))
     app.add_handler(CommandHandler("export", export))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_handler(CommandHandler("advice", advice))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_entry))
 
     app.run_polling()
