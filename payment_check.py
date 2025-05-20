@@ -1,39 +1,54 @@
 import os
 import gspread
-from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 import base64
 import json
+from datetime import datetime, timedelta
+
 
 def get_payment_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds_json = os.getenv("GOOGLE_SERVICE_JSON_BASE64")
     creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds_dict)
-    sheet_id = os.getenv("PAYMENT_SHEET_ID")  # 你付款記錄表嘅 Spreadsheet ID
-    return client.open_by_key(sheet_id).sheet1
+    client = gspread.authorize(creds)
+    return client.open("AI付款表單回應").sheet1
 
-def is_payment_verified(user_id: str) -> bool:
+
+def is_payment_verified(telegram_id):
     sheet = get_payment_sheet()
-    records = sheet.get_all_records()
-    for row in records:
-        if str(row.get("Telegram ID", "")).strip() == str(user_id):
-            return str(row.get("狀態", "")).strip() == "已付款"
+    data = sheet.get_all_records()
+
+    for row in data:
+        if str(row.get("用戶 Telegram ID", "")).strip() == str(telegram_id):
+            status = row.get("付款狀態", "")
+            if status and "已確認付款" in status:
+                return True
     return False
 
-def is_subscription_active(user_id: str) -> bool:
+
+def get_password_by_user(telegram_id):
     sheet = get_payment_sheet()
-    records = sheet.get_all_records()
-    for row in records:
-        if str(row.get("Telegram ID", "")).strip() == str(user_id):
-            expiry_str = row.get("到期日", "")
-            if not expiry_str:
-                return False
-            try:
-                expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-                today = datetime.today().date()
-                return expiry_date >= today
-            except ValueError:
-                return False
+    data = sheet.get_all_records()
+
+    for row in data:
+        if str(row.get("用戶 Telegram ID", "")).strip() == str(telegram_id):
+            return row.get("付款密碼", "")
+    return ""
+
+
+def is_subscription_expired(telegram_id):
+    sheet = get_payment_sheet()
+    data = sheet.get_all_records()
+
+    for row in data:
+        if str(row.get("用戶 Telegram ID", "")) == str(telegram_id):
+            ts = row.get("Timestamp", "")
+            if ts:
+                try:
+                    timestamp = datetime.strptime(ts, "%Y/%m/%d %H:%M:%S")
+                    if datetime.now() - timestamp > timedelta(days=30):
+                        return True
+                except:
+                    pass
     return False
