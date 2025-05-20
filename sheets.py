@@ -1,130 +1,77 @@
 # -*- coding: utf-8 -*-
+# sheets.py
 import os
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import base64
 import json
-from datetime import datetime
+import gspread
+from datetime import datetime, timedelta
+from oauth2client.service_account import ServiceAccountCredentials
 
-# 初始化 Google Sheet client
-def get_gsheet():
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+SHEET_1_NAME = "家庭收支表"
+SHEET_2_NAME = "AI付款表單回應"
+SUBSCRIPTION_DAYS = 30
+
+
+def get_gspread_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_json = os.getenv("GOOGLE_SERVICE_JSON_BASE64")
     creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    return client.open("家庭收支表")
+    return gspread.authorize(creds)
 
-# 建立或讀取用戶個人工作表
-def get_or_create_user_sheet(username):
-    spreadsheet = get_gsheet()
+
+def get_sheet(sheet_name):
+    client = get_gspread_client()
+    return client.open(sheet_name)
+
+
+def is_payment_verified(user_id):
     try:
-        sheet = spreadsheet.worksheet(username)
-    except gspread.exceptions.WorksheetNotFound:
-        sheet = spreadsheet.add_worksheet(title=username, rows="1000", cols="10")
-        sheet.append_row(["日期", "類別", "金額", "備註", "收入/支出"])
-    return sheet
+        sheet = get_sheet(SHEET_2_NAME).worksheet("付款狀態")
+        records = sheet.get_all_records()
+        for row in reversed(records):
+            if str(row.get("用戶 Telegram ID", "")).strip() == str(user_id):
+                return str(row.get("付款狀態", "")).strip() == "✅"
+    except Exception as e:
+        print("[付款驗證失敗]", e)
+    return False
 
-# 初始化用戶，並在「用戶列表」記錄資料
-def init_user_sheet(user_id):
-    spreadsheet = get_gsheet()
+
+def is_subscription_valid(user_id):
     try:
-        user_sheet = spreadsheet.worksheet("用戶列表")
-    except gspread.exceptions.WorksheetNotFound:
-        user_sheet = spreadsheet.add_worksheet(title="用戶列表", rows="100", cols="3")
-        user_sheet.append_row(["Telegram_ID", "用戶名稱", "預算"])
-    
-    data = user_sheet.get_all_records()
-    if not any(str(row["Telegram_ID"]) == str(user_id) for row in data):
-        user_sheet.append_row([user_id, "", 0])
+        sheet = get_sheet(SHEET_1_NAME).worksheet("帳戶總覽")
+        records = sheet.get_all_records()
+        for row in records:
+            if str(row.get("Telegram_ID", "")).strip() == str(user_id):
+                expiry_str = row.get("到期日", "")
+                expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d")
+                return expiry_date >= datetime.now()
+    except Exception as e:
+        print("[檢查到期日失敗]", e)
+    return False
 
-# 記錄收支紀錄至用戶分頁
-def add_record(user_id, amount, category, purpose, is_income):
-    username = get_username(user_id)
-    if not username:
-        return
-    sheet = get_or_create_user_sheet(username)
-    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry_type = "收入" if is_income else "支出"
-    sheet.append_row([date, category, amount, purpose, entry_type])
 
-# 查看用戶預算與支出總額
-def check_budget_status(user_id):
-    spreadsheet = get_gsheet()
-    user_sheet = spreadsheet.worksheet("用戶列表")
-    data = user_sheet.get_all_records()
+def activate_user_subscription(user_id, username):
+    try:
+        client = get_gspread_client()
+        sheet = client.open(SHEET_1_NAME)
+        summary_ws = sheet.worksheet("帳戶總覽")
+        records = summary_ws.get_all_records()
+        expiry_date = (datetime.now() + timedelta(days=SUBSCRIPTION_DAYS)).strftime("%Y-%m-%d")
 
-    budget = 0
-    username = ""
-    for row in data:
-        if str(row["Telegram_ID"]) == str(user_id):
-            budget = float(row.get("預算", 0))
-            username = row.get("用戶名稱", "")
-            break
-    
-    if not username:
-        return 0, 0
-    
-    sheet = get_or_create_user_sheet(username)
-    records = sheet.get_all_records()
-    used = sum(float(r["金額"]) for r in records if r.get("收入/支出") == "支出")
-    return used, budget
+        for i, row in enumerate(records, start=2):
+            if str(row.get("Telegram_ID", "")) == str(user_id):
+                summary_ws.update_cell(i, 2, username)
+                summary_ws.update_cell(i, 3, expiry_date)
+                break
+        else:
+            summary_ws.append_row([user_id, username, expiry_date])
 
-# 設定用戶預算
-def set_user_budget(user_id, amount):
-    spreadsheet = get_gsheet()
-    user_sheet = spreadsheet.worksheet("用戶列表")
-    data = user_sheet.get_all_records()
-    for i, row in enumerate(data, start=2):
-        if str(row["Telegram_ID"]) == str(user_id):
-            user_sheet.update_cell(i, 3, amount)
-            return
-    # fallback
-    user_sheet.append_row([user_id, "", amount])
-
-# 查看收入摘要
-def get_income_summary(user_id):
-    username = get_username(user_id)
-    if not username:
-        return "❗ 未設定名稱，請先 /setusername"
-
-    sheet = get_or_create_user_sheet(username)
-    data = sheet.get_all_records()
-    total_income = 0
-    breakdown = {}
-    for row in data:
-        if row.get("收入/支出") == "收入":
-            amt = float(row.get("金額", 0))
-            cat = row.get("類別", "未分類")
-            total_income += amt
-            breakdown[cat] = breakdown.get(cat, 0) + amt
-    result = f"💰 本月總收入：HK${total_income}\n"
-    for cat, amt in breakdown.items():
-        result += f"・{cat}: HK${amt}\n"
-    return result
-
-# 設定用戶名稱
-def set_username(user_id, username):
-    spreadsheet = get_gsheet()
-    user_sheet = spreadsheet.worksheet("用戶列表")
-    data = user_sheet.get_all_records()
-    for i, row in enumerate(data, start=2):
-        if str(row["Telegram_ID"]) == str(user_id):
-            user_sheet.update_cell(i, 2, username)
-            return
-    user_sheet.append_row([user_id, username, 0])
-
-# 取得用戶名稱（分頁名用）
-def get_username(user_id):
-    spreadsheet = get_gsheet()
-    user_sheet = spreadsheet.worksheet("用戶列表")
-    data = user_sheet.get_all_records()
-    for row in data:
-        if str(row["Telegram_ID"]) == str(user_id):
-            return row.get("用戶名稱", "")
-    return ""
-
-# 檢查是否已驗證付款（需配合 payment_check.py）
-def is_verified_user(update):
-    from modules.payment_check import is_payment_verified
-    return is_payment_verified(str(update.effective_user.id))
+        # 建立個人分頁（如未存在）
+        sheet_titles = [ws.title for ws in sheet.worksheets()]
+        if username not in sheet_titles:
+            template = sheet.worksheet("Sheet1")
+            new_ws = sheet.duplicate_sheet(template.id, new_sheet_name=username)
+            print(f"[成功建立分頁] {username}")
+    except Exception as e:
+        print("[啟用訂閱失敗]", e)
