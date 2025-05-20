@@ -141,7 +141,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_MESSAGE, parse_mode="Markdown")
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token("YOUR_TELEGRAM_BOT_TOKEN").build()
+    import os
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # 🔥 用環境變數讀 token
+    app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("verify", verify))
@@ -154,3 +156,4 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record))
 
     app.run_polling()
+
