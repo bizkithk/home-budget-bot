@@ -4,7 +4,6 @@ import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from sheets import (
-    init_user_sheet,
     add_record,
     get_summary_chart,
     get_income_summary,
